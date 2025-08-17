@@ -1,0 +1,11 @@
+fastapi[standard]
+motor 
+pillow 
+pydantic 
+pydantic-settings
+python-dotenv 
+requests 
+pyjwt
+pytest
+argon2-cffi
+passlib[argon2]

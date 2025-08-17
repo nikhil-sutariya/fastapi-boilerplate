@@ -1,0 +1,284 @@
+from fastapi import APIRouter, status, Depends, BackgroundTasks, Path, File, UploadFile, \
+    WebSocket, WebSocketDisconnect, Response as FastAPIResponse, Request 
+from fastapi.websockets import WebSocketState
+from app.core.response import Response
+from app.messages.user import ErrorMessage, InfoMessage
+from app.schemas.user import RegisterSchema, LoginSchema, RequestEmailLinkForgotPasswordSchema, \
+    ResetForgotPasswordSchema, ChangePasswordSchema, UpdateProfileSchema
+from app.models.user import CurrentUser, User
+from fastapi.security import OAuth2PasswordRequestForm
+from app.repositories.user_repository import get_notifications_by_user, update_notification_status
+from app.api.deps.auth_deps import get_current_user, get_current_user_from_token
+from app.repositories import base_repository
+from app.core.config import get_settings
+from app.core import constants
+from app.db.collections import User as UserCollection
+from pathlib import Path as PathlibPath
+import asyncio
+from app.core.socket_manager import UserNotificationManager
+from app.core.logging import setup_logger
+from app.utils import send_email
+from app.services.user_service import UserService
+from app.core.exceptions import UserAlreadyExistsException
+from app.core.security import create_access_token
+
+settings = get_settings()
+logger = setup_logger()
+user_notification_manager = UserNotificationManager()
+user_service = UserService()
+
+UPLOAD_PROFILE_DIR = PathlibPath("uploads/profile_pictures")
+UPLOAD_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+ALLOWED_EXTENSIONS = {"image/jpg", "image/jpeg", "image/png"}
+
+auth_router = APIRouter()
+
+@auth_router.post("/register")
+async def register(payload: RegisterSchema):
+    try:
+        result = await user_service.register_user(payload)        
+        return Response.created(InfoMessage.user_created, result)
+    except UserAlreadyExistsException:
+        return Response.error(status.HTTP_400_BAD_REQUEST, ErrorMessage.user_already_exists, None)
+    except Exception as e:
+        logger.error(str(e))
+        return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
+
+@auth_router.post("/login")
+async def login_user(response: FastAPIResponse, payload: LoginSchema):
+    try:
+        result, error = await user_service.login_user(payload)
+        if error:
+            return Response.error(status.HTTP_400_BAD_REQUEST, error, None)
+        
+        response = Response.success_method(InfoMessage.login_success, result['user_data'])
+               
+        response.set_cookie(
+            key="access_token", 
+            value=result['access_token'], 
+            httponly=True, 
+            secure=True if settings.environment == constants.Environment.production else False,
+            samesite="Lax",
+            path="/"
+        )
+
+        response.set_cookie(
+            key="refresh_token",
+            value=result['refresh_token'],
+            httponly=True,
+            secure=True if settings.environment == constants.Environment.production else False,
+            samesite="Lax",
+            path="/"
+        )
+        return response
+    
+    except Exception as e:
+        logger.error(str(e))
+        return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
+
+@auth_router.post("/logout")
+async def logout(response: FastAPIResponse):
+    try:
+        response = Response.success_method(InfoMessage.logout_success, None)
+        response.delete_cookie("access_token", path="/")
+        response.delete_cookie("refresh_token", path="/")
+        return response
+    except Exception as e:
+        logger.error(str(e))
+        return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
+
+@auth_router.post("/refresh-token")
+async def refresh_token(request: Request):
+    try:
+        refresh_token = request.cookies.get("refresh_token")
+        result, error = await user_service.refresh_token(refresh_token)
+        if error:
+            return Response.error(status.HTTP_401_UNAUTHORIZED, error, None)
+        
+        response = Response.created(InfoMessage.access_token_refreshed, result)
+               
+        response.set_cookie(
+            key="access_token", 
+            value=result['access_token'], 
+            httponly=True, 
+            secure=True if settings.environment == constants.Environment.production else False,
+            samesite="Lax",
+            path="/"
+        )
+
+        response.set_cookie(
+            key="refresh_token",
+            value=result['refresh_token'],
+            httponly=True,
+            secure=True if settings.environment == constants.Environment.production else False,
+            samesite="Lax",
+            path="/"
+        )
+
+        return response
+    except Exception as e:
+        logger.error(str(e))
+        return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
+
+@auth_router.post('/swagger-login', include_in_schema=False)
+async def swagger_login(response: FastAPIResponse, form_data: OAuth2PasswordRequestForm = Depends()):
+    try:
+        login_payload = LoginSchema(email=form_data.username, password=form_data.password)
+        result, error = await user_service.login_user(login_payload)
+        if error:
+            return Response.error(status.HTTP_400_BAD_REQUEST, error, None)
+        
+        response.set_cookie(
+            key="access_token", 
+            value=result['access_token'], 
+            httponly=True, 
+            secure=True if settings.environment == constants.Environment.production else False,
+            samesite="Lax"
+        )
+
+        response.set_cookie(
+            key="refresh_token",
+            value=result['refresh_token'],
+            httponly=True,
+            secure=True if settings.environment == constants.Environment.production else False,
+            samesite="Lax",
+            path="/auth/refresh"
+        )
+
+        return {"access_token": result['access_token']}
+    except Exception as e:
+        logger.error(str(e))
+        return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
+
+@auth_router.post('/forget-password', status_code=status.HTTP_200_OK)
+async def forget_password(payload: RequestEmailLinkForgotPasswordSchema, background_tasks: BackgroundTasks):
+    try:
+        context, email, template, token = await user_service.send_forgot_password_email(payload.email)
+        if not context:
+            return Response.error(status.HTTP_400_BAD_REQUEST, ErrorMessage.user_email_not_exists, None)
+        
+        background_tasks.add_task(send_email.send, "Reset password", email, template, context)
+        return Response.success_method(InfoMessage.forgot_password_mail_sent, context)
+    except Exception as e:
+        logger.error(str(e))
+        return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
+
+@auth_router.post('/reset-password', status_code=status.HTTP_200_OK)
+async def reset_password(payload: ResetForgotPasswordSchema):
+    try:
+        result, error = await user_service.reset_forgotten_password(
+            payload.secret_token,
+            payload.new_password,
+            payload.confirm_password
+        )
+        if error:
+            return Response.error(status.HTTP_400_BAD_REQUEST, error, None)
+        return Response.success_method(InfoMessage.password_updated, None)
+    except Exception as e:
+        logger.error(str(e))
+        return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
+
+@auth_router.patch('/change-password')
+async def change_password(payload: ChangePasswordSchema, current_user: CurrentUser = Depends(get_current_user)):
+    try:
+        user = await base_repository.get_document_data(UserCollection, current_user.id)
+        user = User(**user)
+        result, error = await user_service.change_password(
+            user,
+            payload.current_password,
+            payload.new_password,
+            payload.confirm_password
+        )
+        if error:
+            return Response.error(status.HTTP_400_BAD_REQUEST, error, None)
+        return Response.success_method(InfoMessage.password_updated, None)
+    except Exception as e:
+        logger.error(str(e))
+        return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
+
+@auth_router.get("/get-profile")
+async def get_profile(current_user: CurrentUser = Depends(get_current_user)):
+    try:
+        user_data, error = await user_service.get_profile(current_user.id)
+        if error:
+            return Response.error(status.HTTP_400_BAD_REQUEST, error, None)
+        return Response.success_method(InfoMessage.user_account_fetched, user_data)
+    except Exception as e:
+        logger.error(str(e))
+        return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
+
+@auth_router.patch("/update-profile/{user_id}")
+async def update_profile(payload: UpdateProfileSchema, user_id: str = Path(description="Id of the user"), current_user: CurrentUser = Depends(get_current_user)):
+    try:
+        user_data, error = await user_service.update_profile(user_id, payload.model_dump(exclude_unset=True))
+        if error:
+            return Response.error(status.HTTP_400_BAD_REQUEST, error, None)
+        return Response.success_method(InfoMessage.profile_updated, user_data)
+    except Exception as e:
+        logger.error(str(e))
+        return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
+
+@auth_router.patch("/upload-profile-picture/{user_id}")
+async def update_profile_picture(profile_picture: UploadFile = File(), user_id: str = Path(description="Id of the user"), current_user: CurrentUser = Depends(get_current_user)):
+    try:
+        result, error = await user_service.update_profile_picture(user_id, profile_picture)
+        if error:
+            return Response.error(status.HTTP_400_BAD_REQUEST, error, None)
+        return Response.success_method(InfoMessage.profile_updated, {"profile_picture": result})
+    except Exception as e:
+        logger.error(str(e))
+        return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
+
+@auth_router.get("/get-notifications")
+async def get_notifications(current_user: CurrentUser = Depends(get_current_user)):
+    try:
+        notifications = await get_notifications_by_user(current_user.id)
+        return Response.success_method(InfoMessage.available_notifications, notifications)
+    except Exception as e:
+        logger.error(str(e))
+        return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
+
+@auth_router.put("/notification-seen")
+async def notification_seen(current_user: CurrentUser = Depends(get_current_user)):
+    try:
+        await update_notification_status(current_user.id)
+        return Response.success_method(InfoMessage.notification_seen, None)
+    except Exception as e:
+        logger.error(str(e))
+        return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
+
+@auth_router.get("/ws-token")
+async def get_ws_token(user: CurrentUser = Depends(get_current_user)):
+    token = create_access_token(user.id, duration=5)
+    return {"ws_token": token}
+
+@auth_router.websocket("/ws/notifications")
+async def notification_websocket(websocket: WebSocket):
+    token = websocket.query_params.get("token")
+    if not token:
+        logger.warning("WebSocket connection attempt without token")
+        await websocket.close(code=4000)
+        return
+
+    try:
+        logger.info("Attempting to authenticate websocket connection")
+        current_user = await get_current_user_from_token(token)
+        user_id = current_user.id
+        logger.info(f"WebSocket authenticated for user {user_id}")
+        await user_notification_manager.manage_connection(user_id, websocket)
+
+        try:
+            while websocket.client_state == WebSocketState.CONNECTED:
+                try:
+                    await asyncio.wait_for(websocket.receive_text(), timeout=10)
+                except asyncio.TimeoutError:
+                    pass
+        except WebSocketDisconnect:
+            logger.info(f"User disconnected {user_id}")
+        except Exception as e:
+            logger.error(f"Unexpected error for user {user_id}: {e}")
+        finally:
+            await user_notification_manager.manage_disconnection(user_id, websocket)
+    except Exception as e:
+        logger.error(f"Authentication error in websocket: {e}")
+        await websocket.close(code=4000)
