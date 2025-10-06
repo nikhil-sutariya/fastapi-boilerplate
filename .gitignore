@@ -5,3 +5,4 @@ venv
 .vscode
 **/uploads
 .vscode
+**/.DS_Store

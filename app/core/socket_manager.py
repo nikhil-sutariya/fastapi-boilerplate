@@ -1,8 +1,11 @@
 from fastapi import WebSocket
 from typing import Dict, Any
-from app.repositories import base_repository
-from app.db.collections import Notification as NotificationCollection
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.user import Notification
+from app.repositories.base_repository import create_record
+from app.core.logging import setup_logger
+
+logger = setup_logger()
 
 class UserNotificationManager:
     """
@@ -35,18 +38,35 @@ class UserNotificationManager:
         """
         self.active_connections.pop(user_id, None)
 
-    async def send_notification(self, user_id: str, notification_obj: Dict[str, Any]) -> None:
+    async def send_notification(self, session: AsyncSession, user_id: str, notification_obj: Dict[str, Any]) -> None:
         """
         Sending notification to the user. 
 
         Args:
+            session (AsyncSession): SQLAlchemy async session
             user_id (str): The unique identifier of the user.
             notification_obj (dict): The dictionary which contains notification details
         """
         if user_id in self.active_connections:
-            notification_id = await base_repository.store_document(NotificationCollection(), notification_obj)
-            notification_data = await base_repository.get_document_data(NotificationCollection(), notification_id)
-            if notification_data:
-                notification = Notification.from_mongo(notification_data)
-                notification_serialized_data = notification.to_api_response()
-                await self.active_connections[user_id].send_json(notification_serialized_data)
+            try:
+                # Create notification in database
+                notification = await create_record(session, Notification, notification_obj)
+                if notification:
+                    # Convert to API response format
+                    notification_data = {
+                        "id": notification.id,
+                        "user_id": notification.user_id,
+                        "organization_id": notification.organization_id,
+                        "type": notification.type,
+                        "message": notification.message,
+                        "is_seen": notification.is_seen,
+                        "created_at": notification.created_at,
+                        "updated_at": notification.updated_at
+                    }
+                    
+                    # Send to WebSocket client
+                    await self.active_connections[user_id].send_json(notification_data)
+                else:
+                    logger.error(f"Failed to create notification for user {user_id}")
+            except Exception as e:
+                logger.error(f"Error sending notification to user {user_id}: {e}")

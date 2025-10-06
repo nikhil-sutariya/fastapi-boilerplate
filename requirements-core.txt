@@ -1,5 +1,7 @@
 fastapi[standard]
-motor 
+sqlalchemy[asyncio]
+asyncpg
+alembic
 pillow 
 pydantic 
 pydantic-settings

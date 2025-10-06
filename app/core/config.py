@@ -17,7 +17,6 @@ class Settings(BaseSettings):
     db_username: str
     db_password: str
     db_name: str
-    mongo_uri: str
     secret_key: str
     oauth_algorithm: str
     access_token_expire_minutes: int
@@ -34,6 +33,10 @@ class Settings(BaseSettings):
     smtp_password: str
 
     model_config = SettingsConfigDict(env_file=".env")
+    
+    @property
+    def database_url(self) -> str:
+        return f"postgresql+asyncpg://{self.db_username}:{self.db_password}@{self.db_hostname}:{self.db_port}/{self.db_name}"
 
 @lru_cache
 def get_settings() -> Settings:

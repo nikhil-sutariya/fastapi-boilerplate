@@ -1,78 +1,114 @@
-from typing import Optional, List, Dict, Any, Union
-from bson import ObjectId
-from datetime import datetime, timezone
-from motor.motor_asyncio import AsyncIOMotorCollection
-from pymongo.results import InsertOneResult, InsertManyResult, UpdateResult, DeleteResult
+from typing import Optional, List, Dict, Any, Union, Type, TypeVar
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, update, delete
+from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.exc import SQLAlchemyError
 from app.core.logging import setup_logger
-from app.core.custom_model_fields import mongo_to_dict, dict_to_mongo
+from datetime import datetime, timezone
 
 logger = setup_logger()
 
-async def store_bulk_document(collection: AsyncIOMotorCollection, document_data: List[Dict[str, Any]]) -> Optional[InsertManyResult]:
+T = TypeVar('T', bound=DeclarativeBase)
+
+async def create_record(session: AsyncSession, model: Type[T], data: Dict[str, Any]) -> Optional[T]:
+    """Create a new record in the database"""
     try:
-        result = await collection.insert_many(document_data)
-        return result
-    except Exception as e:
-        logger.error("Error while storing bulk documents: ", str(e))
+        record = model(**data)
+        session.add(record)
+        await session.commit()
+        await session.refresh(record)
+        return record
+    except SQLAlchemyError as e:
+        logger.error(f"Error creating record: {e}")
+        await session.rollback()
         return None
 
-async def store_document(collection: AsyncIOMotorCollection, document_data: Dict[str, Any]) -> Optional[str]:
+async def create_bulk_records(session: AsyncSession, model: Type[T], records_data: List[Dict[str, Any]]) -> Optional[List[T]]:
+    """Create multiple records in the database"""
     try:
-        document_data['created_at'] = datetime.now(timezone.utc)
-        document_data['updated_at'] = datetime.now(timezone.utc)
-        
-        # Convert id to _id for MongoDB storage
-        mongo_data = dict_to_mongo(document_data.copy())
-        
-        result = await collection.insert_one(mongo_data)
-        return str(result.inserted_id)
-    except Exception as e:  
-        logger.error("Error while storing document: %s", str(e))
-        return None
-    
-async def edit_document(collection: AsyncIOMotorCollection, document_id: str, document_data: Dict[str, Any]) -> Optional[str]:
-    try:
-        document_data['updated_at'] = datetime.now(timezone.utc)
-        await collection.update_one(
-            {"_id": ObjectId(document_id)}, 
-            {"$set": document_data}
-        )
-        return str(document_id)
-    except Exception as e:
-        logger.error("Error while editing document: ", str(e))
+        records = [model(**data) for data in records_data]
+        session.add_all(records)
+        await session.commit()
+        for record in records:
+            await session.refresh(record)
+        return records
+    except SQLAlchemyError as e:
+        logger.error(f"Error creating bulk records: {e}")
+        await session.rollback()
         return None
 
-async def get_document_data(collection: AsyncIOMotorCollection, document_id: Optional[str] = None) -> Optional[Union[Dict[str, Any], List[Dict[str, Any]]]]:
+async def get_record_by_id(session: AsyncSession, model: Type[T], record_id: int) -> Optional[T]:
+    """Get a single record by ID"""
     try:
-        if document_id:
-            document_data = await collection.find_one({"_id": ObjectId(document_id)})
-            if not document_data:
-                return None
-            # Convert _id to id for API usage
-            return mongo_to_dict(document_data)
-        else:
-            all_document_data = await collection.find().to_list(length=None)
-            # Convert all documents _id to id for API usage
-            return [mongo_to_dict(doc) for doc in all_document_data]
-        
-    except Exception as e:
-        logger.error("Error while getting document data: ", str(e))
-        return None
-    
-async def filter_document_data(collection: AsyncIOMotorCollection, filter: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
-    try:
-        document_data = await collection.find(filter).to_list(length=None)
-        # Convert all documents _id to id for API usage
-        return [mongo_to_dict(doc) for doc in document_data]
-    except Exception as e:
-        logger.error("Error while getting document data: ", str(e))
+        result = await session.execute(select(model).where(model.id == record_id))
+        return result.scalar_one_or_none()
+    except SQLAlchemyError as e:
+        logger.error(f"Error getting record by ID: {e}")
         return None
 
-async def delete_document(collection: AsyncIOMotorCollection, document_id: str) -> Optional[DeleteResult]:
+async def get_all_records(session: AsyncSession, model: Type[T]) -> Optional[List[T]]:
+    """Get all records of a model"""
     try:
-        result = await collection.delete_one({"_id": ObjectId(document_id)})
-        return result
-    except Exception as e:
-        logger.error("Error while deleting document: ", str(e))
+        result = await session.execute(select(model))
+        return result.scalars().all()
+    except SQLAlchemyError as e:
+        logger.error(f"Error getting all records: {e}")
+        return None
+
+async def get_records_by_filter(session: AsyncSession, model: Type[T], **filters) -> Optional[List[T]]:
+    """Get records by filter criteria"""
+    try:
+        query = select(model)
+        for key, value in filters.items():
+            if hasattr(model, key):
+                query = query.where(getattr(model, key) == value)
+        
+        result = await session.execute(query)
+        return result.scalars().all()
+    except SQLAlchemyError as e:
+        logger.error(f"Error getting records by filter: {e}")
+        return None
+
+async def update_record(session: AsyncSession, model: Type[T], record_id: int, data: Dict[str, Any]) -> Optional[T]:
+    """Update a record by ID"""
+    try:
+        # Add updated_at timestamp
+        data['updated_at'] = datetime.now(timezone.utc)
+        
+        stmt = update(model).where(model.id == record_id).values(**data)
+        await session.execute(stmt)
+        await session.commit()
+        
+        # Return the updated record
+        return await get_record_by_id(session, model, record_id)
+    except SQLAlchemyError as e:
+        logger.error(f"Error updating record: {e}")
+        await session.rollback()
+        return None
+
+async def delete_record(session: AsyncSession, model: Type[T], record_id: int) -> bool:
+    """Delete a record by ID"""
+    try:
+        stmt = delete(model).where(model.id == record_id)
+        result = await session.execute(stmt)
+        await session.commit()
+        return result.rowcount > 0
+    except SQLAlchemyError as e:
+        logger.error(f"Error deleting record: {e}")
+        await session.rollback()
+        return False
+
+async def get_record_by_field(session: AsyncSession, model: Type[T], field_name: str, field_value: Any) -> Optional[T]:
+    """Get a single record by a specific field value"""
+    try:
+        if not hasattr(model, field_name):
+            logger.error(f"Field {field_name} does not exist on model {model.__name__}")
+            return None
+            
+        field = getattr(model, field_name)
+        result = await session.execute(select(model).where(field == field_value))
+        return result.scalar_one_or_none()
+    except SQLAlchemyError as e:
+        logger.error(f"Error getting record by field: {e}")
         return None
     

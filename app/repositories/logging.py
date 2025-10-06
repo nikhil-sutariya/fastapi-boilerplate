@@ -1,26 +1,32 @@
-from app.db.collections import Logs
-from pymongo import DESCENDING
-from app.schemas.logging import LogSchema
+from datetime import datetime, timezone
+from typing import Dict, Any, Optional, List
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, desc
+from app.models.user import Log
 from app.core.logging import setup_logger
-from typing import Optional, List, Dict, Any
+from app.repositories.base_repository import create_record, get_records_by_filter
+import uuid
 
 logger = setup_logger()
 
-async def get_logs_by_user(user_id: str) -> Optional[List[Dict[str, Any]]]:
+async def get_logs_by_user(session: AsyncSession, user_id: uuid.UUID) -> Optional[List[Log]]:
+    """Get all logs for a specific user, sorted by created_at descending"""
     try:
-        logs = await Logs().find({"user_id": user_id}).sort('created_at', DESCENDING).to_list(length=None)
+        logs = await get_records_by_filter(session, Log, user_id=user_id)
+        if logs:
+            return sorted(logs, key=lambda x: x.created_at, reverse=True)
         return logs
-        
     except Exception as e:
-        logger.error(str(e))
+        logger.error(f"Error getting logs by user: {e}")
         return None
 
-async def create_log(data: Dict[str, Any]) -> Optional[str]:
+async def create_log(session: AsyncSession, log_data: Dict[str, Any]) -> bool:
+    """Create a new log entry"""
     try:
-        log_data = LogSchema(**data).model_dump()
-        log_inserted = await Logs().insert_one(log_data)
-        return str(log_inserted)
-        
+        log_record = await create_record(session, Log, log_data)
+        if log_record:
+            return True
+        return False
     except Exception as e:
-        logger.error(str(e))
-        return None
+        logger.error(f"Error creating log: {e}")
+        return False

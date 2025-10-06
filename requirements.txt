@@ -22,7 +22,9 @@ Jinja2==3.1.6
 markdown-it-py==4.0.0
 MarkupSafe==3.0.2
 mdurl==0.1.2
-motor==3.7.1
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.29.0
+alembic==1.14.0
 packaging==25.0
 passlib==1.7.4
 pillow==11.3.0
@@ -33,7 +35,6 @@ pydantic-settings==2.10.1
 pydantic_core==2.33.2
 Pygments==2.19.2
 PyJWT==2.10.1
-pymongo==4.14.0
 pytest==8.4.1
 python-dotenv==1.1.1
 python-multipart==0.0.20

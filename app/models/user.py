@@ -1,37 +1,47 @@
-from pydantic import Field
+from sqlalchemy import Column, String, DateTime, Boolean, Text
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.sql import func
 from datetime import datetime
-from app.core.custom_model_fields import PyObjectId, MongoModel
+from app.db.database import Base
+from typing import Optional
+import uuid
 
-class CurrentUser(MongoModel):
-    """User model for authentication context - doesn't include sensitive fields"""
-    id: str
-    email: str
-    role: str
-    first_name: str | None = None
-    last_name: str | None = None
+class User(Base):
+    """SQLAlchemy User model"""
+    __tablename__ = "users"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    email = Column(String(255), unique=True, index=True, nullable=False)
+    first_name = Column(String(100), nullable=True)
+    last_name = Column(String(100), nullable=True)
+    password = Column(String(255), nullable=False)
+    role = Column(String(50), nullable=False, default="user")
+    profile_picture = Column(String(500), nullable=True)
+    last_loggedin_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
-class User(MongoModel):
-    """Complete user model for database operations"""
-    email: str
-    first_name: str | None = None
-    last_name: str | None = None
-    password: str
-    role: str
-    profile_picture: str | None = None
-    last_loggedin_at: datetime | None = None
+class Notification(Base):
+    """SQLAlchemy Notification model"""
+    __tablename__ = "notifications"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    user_id = Column(UUID(as_uuid=True), nullable=False)
+    organization_id = Column(UUID(as_uuid=True), nullable=True)
+    type = Column(String(50), nullable=False)
+    message = Column(Text, nullable=False)
+    is_seen = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
-class UserProfileResponse(MongoModel):
-    """User profile model for API responses - excludes sensitive fields"""
-    email: str
-    first_name: str | None = None
-    last_name: str | None = None
-    profile_picture: str | None = None
-    last_loggedin_at: datetime | None = None
-
-class Notification(MongoModel):
-    """Notification model"""
-    user_id: str
-    organization_id: str
-    type: str
-    message: str
-    is_seen: bool
+class Log(Base):
+    """SQLAlchemy Log model"""
+    __tablename__ = "logs"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    user_id = Column(UUID(as_uuid=True), nullable=True)
+    message = Column(Text, nullable=False)
+    module = Column(String(100), nullable=False)
+    log_type = Column(String(50), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
