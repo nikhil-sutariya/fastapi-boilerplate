@@ -2,10 +2,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 from dotenv import load_dotenv
 import os
+from typing import List
 
 load_dotenv()
 
-CLIENT_ORIGINS = list(filter(None, os.getenv("CLIENT_ORIGINS", "").split(",")))
+CLIENT_ORIGINS: List[str] = list(filter(None, os.getenv("CLIENT_ORIGINS", "").split(",")))
 
 class Settings(BaseSettings):
     app_title: str
@@ -21,7 +22,7 @@ class Settings(BaseSettings):
     oauth_algorithm: str
     access_token_expire_minutes: int
     refresh_token_expire_days: int
-    client_origin: list = CLIENT_ORIGINS
+    client_origin: List[str] = CLIENT_ORIGINS
     frontend_host_url: str
     frontend_forget_password_url: str
     frontend_signup_url: str

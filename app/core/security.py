@@ -1,5 +1,6 @@
 from passlib.context import CryptContext
 from datetime import datetime, timedelta, timezone
+from typing import Dict, Any
 import jwt
 from jwt.exceptions import InvalidTokenError
 from app.core.config import get_settings
@@ -10,10 +11,10 @@ settings = get_settings()
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
 
-def verify_password(plain_password, hashed_password):
+def verify_password(plain_password: str, hashed_password: str) -> bool:
 	return pwd_context.verify(plain_password, hashed_password)
 
-def get_password_hash(password):
+def get_password_hash(password: str) -> str:
 	return pwd_context.hash(password)
 
 def create_access_token(user_id: str, duration: int = settings.access_token_expire_minutes) -> str:
@@ -26,7 +27,7 @@ def create_refresh_token(user_id: str) -> str:
     payload = {"id": user_id, "exp": expire.timestamp(), "refresh": True}
     return jwt.encode(payload, settings.secret_key, algorithm=settings.oauth_algorithm)
 
-def decode_token(token: str) -> dict:
+def decode_token(token: str) -> Dict[str, Any]:
     try:
         return jwt.decode(token, settings.secret_key, algorithms=[settings.oauth_algorithm])
     except InvalidTokenError:

@@ -1,5 +1,5 @@
 from fastapi import WebSocket
-from typing import Dict
+from typing import Dict, Any
 from app.repositories import base_repository
 from app.db.collections import Notification as NotificationCollection
 from app.models.user import Notification
@@ -9,13 +9,13 @@ class UserNotificationManager:
     UserNotificationManager handles the logic for connecting, disconnecting, and sending notifications.
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Initializes the UserNotificationManager with a dictionary to keep track of active_connections.
         """
         self.active_connections: Dict[str, WebSocket] = {}
 
-    async def manage_connection(self, user_id: str, websocket: WebSocket):
+    async def manage_connection(self, user_id: str, websocket: WebSocket) -> None:
         """
         This method manages the websocket connection with user.
 
@@ -26,7 +26,7 @@ class UserNotificationManager:
         await websocket.accept()
         self.active_connections[user_id] = websocket
 
-    async def manage_disconnection(self, user_id: str, websocket: WebSocket):
+    async def manage_disconnection(self, user_id: str, websocket: WebSocket) -> None:
         """
         Handles the disconnection of a user connection. 
 
@@ -35,7 +35,7 @@ class UserNotificationManager:
         """
         self.active_connections.pop(user_id, None)
 
-    async def send_notification(self, user_id: str, notification_obj: dict):
+    async def send_notification(self, user_id: str, notification_obj: Dict[str, Any]) -> None:
         """
         Sending notification to the user. 
 
@@ -45,7 +45,8 @@ class UserNotificationManager:
         """
         if user_id in self.active_connections:
             notification_id = await base_repository.store_document(NotificationCollection(), notification_obj)
-            notification = await base_repository.get_document_data(NotificationCollection(), notification_id)
-            notification_serialized_data = Notification(**notification).model_dump()
-
-            await self.active_connections[user_id].send_json(notification_serialized_data)
+            notification_data = await base_repository.get_document_data(NotificationCollection(), notification_id)
+            if notification_data:
+                notification = Notification.from_mongo(notification_data)
+                notification_serialized_data = notification.to_api_response()
+                await self.active_connections[user_id].send_json(notification_serialized_data)

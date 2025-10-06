@@ -1,4 +1,5 @@
-from fastapi import APIRouter, status, Depends, Depends
+from fastapi import APIRouter, status, Depends
+from fastapi.responses import Response as FastAPIResponse
 from app.core.response import Response
 from app.messages.logging import ErrorMessage, InfoMessage
 from app.models.user import CurrentUser
@@ -13,7 +14,7 @@ logger = setup_logger()
 log_router = APIRouter()
 
 @log_router.get("/get-logs")
-async def get_logs(current_user: CurrentUser = Depends(get_current_user)):
+async def get_logs(current_user: CurrentUser = Depends(get_current_user)) -> FastAPIResponse:
     try:
         user_id = current_user.id
         

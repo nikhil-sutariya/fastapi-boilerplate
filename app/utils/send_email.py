@@ -4,11 +4,12 @@ from jinja2 import Environment, FileSystemLoader
 from app.core.config import get_settings
 import smtplib
 from app.core.logging import setup_logger
+from typing import Union, Dict, Any
 
 settings = get_settings()
 logger = setup_logger()
 
-def send(subject: str, recipient: str, template_name: str, context: dict):
+def send(subject: str, recipient: Union[str, list[str]], template_name: str, context: Dict[str, Any]) -> None:
     try:
         message = MIMEMultipart('alternative')
         message['From'] = settings.smtp_email_from

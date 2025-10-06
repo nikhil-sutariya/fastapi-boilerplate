@@ -3,6 +3,7 @@ import time
 import uuid
 import shutil
 from pathlib import Path
+from typing import Dict, Any, Optional, Tuple
 from fastapi import UploadFile
 from app.models.user import User, UserProfileResponse
 from app.schemas.user import RegisterSchema, LoginSchema, CreateNotificationSchema
@@ -27,12 +28,12 @@ user_notification_manager = UserNotificationManager()
 settings = get_settings()
 logger = setup_logger()
 
-UPLOAD_PROFILE_DIR = Path("uploads/profile_pictures")
+UPLOAD_PROFILE_DIR: Path = Path("uploads/profile_pictures")
 UPLOAD_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
-ALLOWED_EXTENSIONS = {"image/jpg", "image/jpeg", "image/png"}
+ALLOWED_EXTENSIONS: set[str] = {"image/jpg", "image/jpeg", "image/png"}
 
 class UserService:
-    async def register_user(self, payload: RegisterSchema):
+    async def register_user(self, payload: RegisterSchema) -> Dict[str, Any]:
         try:
             payload = payload.model_dump()
             payload['email'] = payload['email'].lower()
@@ -44,29 +45,32 @@ class UserService:
             payload['password'] = get_password_hash(payload['password'])
             payload.setdefault("role", Role.user)
 
-            user_data = User(**payload).model_dump(by_alias=True)
-            user_id = await base_repository.store_document(UserCollection(), user_data)
+            user = User(**payload)
+            user_id = await base_repository.store_document(UserCollection(), user.to_mongo())
 
             if not user_id:
                 raise Exception(ErrorMessage.user_not_added)
 
             # Get the complete user data from database and return it
             user_data = await base_repository.get_document_data(UserCollection(), user_id)
-            return User(**user_data).model_dump()
+            if user_data:
+                user = User.from_mongo(user_data)
+                return user.to_api_response()
+            return None
         except UserAlreadyExistsException:
             raise
         except Exception as e:
             logger.error(f"Error registering user: {str(e)}")
             raise Exception(ErrorMessage.user_not_added)
 
-    async def login_user(self, payload: LoginSchema):
+    async def login_user(self, payload: LoginSchema) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         try:
-            user = await get_user_by_email(payload.email)
+            user_data = await get_user_by_email(payload.email)
 
-            if not user:
+            if not user_data:
                 return None, ErrorMessage.user_email_not_exists
             
-            user = User(**user)
+            user = User.from_mongo(user_data)
 
             if payload.email != user.email:
                 return None, ErrorMessage.wrong_email
@@ -104,7 +108,7 @@ class UserService:
             logger.error(f"Error in login: {str(e)}")
             return None, ErrorMessage.server_error
 
-    async def refresh_token(self, token: str):
+    async def refresh_token(self, token: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         try:
             payload = await verify_refresh_token(token)
 
@@ -112,12 +116,12 @@ class UserService:
                 return None, ErrorMessage.empty_refresh_token
 
             user_id = payload.get("id")
-            user = await base_repository.get_document_data(UserCollection(), user_id)
+            user_data = await base_repository.get_document_data(UserCollection(), user_id)
 
-            if not user:
+            if not user_data:
                 return None, ErrorMessage.user_email_not_exists
             
-            user = User(**user)
+            user = User.from_mongo(user_data)
 
             user_data = {
                 "id": str(user.id),
@@ -139,13 +143,13 @@ class UserService:
             logger.error(f"Error refreshing token: {str(e)}")
             return None, ErrorMessage.server_error
 
-    async def send_forgot_password_email(self, email: str):
+    async def send_forgot_password_email(self, email: str) -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str], Optional[str]]:
         try:
-            user = await get_user_by_email(email)
-            if not user:
+            user_data = await get_user_by_email(email)
+            if not user_data:
                 return None, ErrorMessage.user_email_not_exists
             
-            user = User(**user)
+            user = User.from_mongo(user_data)
 
             token_payload = {
                 "user_id": user.id,
@@ -173,7 +177,7 @@ class UserService:
             logger.error(f"Error sending forgot password email: {str(e)}")
             return None, ErrorMessage.server_error
 
-    async def reset_forgotten_password(self, token: str, new_password: str, confirm_password: str):
+    async def reset_forgotten_password(self, token: str, new_password: str, confirm_password: str) -> Tuple[Optional[bool], Optional[str]]:
         try:
             decoded_payload = jwt.decode(token, settings.secret_key, algorithms=[settings.oauth_algorithm])
         except:
@@ -187,8 +191,8 @@ class UserService:
             return None, ErrorMessage.same_not_password
 
         try:
-            user = await base_repository.get_document_data(UserCollection(), user_id)
-            user = User(**user)
+            user_data = await base_repository.get_document_data(UserCollection(), user_id)
+            user = User.from_mongo(user_data)
 
             if verify_password(new_password, user.password):
                 return None, ErrorMessage.same_password
@@ -217,7 +221,7 @@ class UserService:
             logger.error(f"Error resetting password: {str(e)}")
             return None, ErrorMessage.password_not_updated
 
-    async def change_password(self, user, current_password, new_password, confirm_password):
+    async def change_password(self, user: User, current_password: str, new_password: str, confirm_password: str) -> Tuple[Optional[bool], Optional[str]]:
         try:
             if not verify_password(current_password, user.password):
                 return None, ErrorMessage.wrong_current_password
@@ -251,32 +255,32 @@ class UserService:
             logger.error(f"Error changing password: {str(e)}")
             return None, ErrorMessage.password_not_updated
 
-    async def get_profile(self, user_id: str):
+    async def get_profile(self, user_id: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         try:
             user_data = await base_repository.get_document_data(UserCollection(), user_id)
             if not user_data:
                 return None, ErrorMessage.profile_data_not_found
-            user = UserProfileResponse(**user_data).model_dump()
-            return user, None
+            user = UserProfileResponse.from_mongo(user_data)
+            return user.to_api_response(), None
         except Exception as e:
             logger.error(f"Error getting profile: {str(e)}")
             return None, ErrorMessage.server_error
 
-    async def update_profile(self, user_id: str, payload: dict):
+    async def update_profile(self, user_id: str, payload: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         try:
             user_data = await base_repository.get_document_data(UserCollection(), user_id)
-            user_data = User(**user_data).model_dump(by_alias=True)
-            combined_data = {**user_data, **payload}
-            # Remove _id field as it shouldn't be updated
-            combined_data.pop("_id", None)
-        
-            updated = await base_repository.edit_document(UserCollection(), user_id, combined_data)
+            user = User.from_mongo(user_data)
+            
+            # Update user with new payload
+            updated_user = user.model_copy(update=payload)
+            
+            updated = await base_repository.edit_document(UserCollection(), user_id, updated_user.to_mongo())
             if updated:
-                user_data = await base_repository.get_document_data(UserCollection(), user_id)
+                updated_user_data = await base_repository.get_document_data(UserCollection(), user_id)
 
                 await create_log({
                     "user_id": user_id,
-                    "message": f"{user_data['email']} updated their profile",
+                    "message": f"{updated_user_data['email']} updated their profile",
                     "module": Modules.auth.value,
                     "log_type": AppLogType.update.value
                 })
@@ -288,13 +292,14 @@ class UserService:
                 ).model_dump()
                 await user_notification_manager.send_notification(user_id, notification_data)
 
-                return User(**user_data).model_dump(), None
+                updated_user = User.from_mongo(updated_user_data)
+                return updated_user.to_api_response(), None
             return None, ErrorMessage.profile_not_updated
         except Exception as e:
             logger.error(f"Error updating profile: {str(e)}")
             return None, ErrorMessage.profile_not_updated
 
-    async def update_profile_picture(self, user_id: str, file: UploadFile):
+    async def update_profile_picture(self, user_id: str, file: UploadFile) -> Tuple[Optional[str], Optional[str]]:
         if file.content_type not in ALLOWED_EXTENSIONS:
             return None, ErrorMessage.invalid_image_type
 
@@ -307,12 +312,11 @@ class UserService:
         profile_picture_url = f"/uploads/profile_pictures/{filename}"
 
         user_data = await base_repository.get_document_data(UserCollection(), user_id)
-        user_data = User(**user_data).model_dump(by_alias=True)
-        # Remove _id field as it shouldn't be updated
-        user_data.pop("_id", None)
-        updated = await base_repository.edit_document(UserCollection(), user_id, {
-            **user_data, "profile_picture": profile_picture_url
-        })
+        user = User.from_mongo(user_data)
+        
+        # Update profile picture
+        updated_user = user.model_copy(update={"profile_picture": profile_picture_url})
+        updated = await base_repository.edit_document(UserCollection(), user_id, updated_user.to_mongo())
 
         if updated:
             await create_log({

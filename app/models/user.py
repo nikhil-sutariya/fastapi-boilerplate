@@ -1,16 +1,17 @@
-from pydantic import BaseModel, Field
+from pydantic import Field
 from datetime import datetime
-from app.core.custom_model_fields import PyObjectId
+from app.core.custom_model_fields import PyObjectId, MongoModel
 
-class CurrentUser(BaseModel):
+class CurrentUser(MongoModel):
+    """User model for authentication context - doesn't include sensitive fields"""
     id: str
     email: str
     role: str
     first_name: str | None = None
     last_name: str | None = None
 
-class User(BaseModel):
-    id: PyObjectId | None = Field(default=None, alias="_id")
+class User(MongoModel):
+    """Complete user model for database operations"""
     email: str
     first_name: str | None = None
     last_name: str | None = None
@@ -18,38 +19,19 @@ class User(BaseModel):
     role: str
     profile_picture: str | None = None
     last_loggedin_at: datetime | None = None
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
 
-    class Config:
-        populate_by_name = True
-        arbitrary_types_allowed = True
-        json_encoders = {PyObjectId: str}
-
-class UserProfileResponse(BaseModel):
-    id: PyObjectId | None = Field(default=None, alias="_id")
+class UserProfileResponse(MongoModel):
+    """User profile model for API responses - excludes sensitive fields"""
     email: str
     first_name: str | None = None
     last_name: str | None = None
     profile_picture: str | None = None
     last_loggedin_at: datetime | None = None
 
-    class Config:
-        populate_by_name = True
-        arbitrary_types_allowed = True
-        json_encoders = {PyObjectId: str}
-
-class Notification(BaseModel):
-    id: PyObjectId = Field(alias="_id")
+class Notification(MongoModel):
+    """Notification model"""
     user_id: str
     organization_id: str
     type: str
     message: str
     is_seen: bool
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
-
-    class Config:
-        populate_by_name = True
-        arbitrary_types_allowed = True
-        json_encoders = {PyObjectId: str}

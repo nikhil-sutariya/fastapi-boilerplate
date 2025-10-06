@@ -1,6 +1,7 @@
 from fastapi import APIRouter, status, Depends, BackgroundTasks, Path, File, UploadFile, \
     WebSocket, WebSocketDisconnect, Response as FastAPIResponse, Request 
 from fastapi.websockets import WebSocketState
+from typing import Dict, Union
 from app.core.response import Response
 from app.messages.user import ErrorMessage, InfoMessage
 from app.schemas.user import RegisterSchema, LoginSchema, RequestEmailLinkForgotPasswordSchema, \
@@ -27,14 +28,14 @@ logger = setup_logger()
 user_notification_manager = UserNotificationManager()
 user_service = UserService()
 
-UPLOAD_PROFILE_DIR = PathlibPath("uploads/profile_pictures")
+UPLOAD_PROFILE_DIR: PathlibPath = PathlibPath("uploads/profile_pictures")
 UPLOAD_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
-ALLOWED_EXTENSIONS = {"image/jpg", "image/jpeg", "image/png"}
+ALLOWED_EXTENSIONS: set[str] = {"image/jpg", "image/jpeg", "image/png"}
 
 auth_router = APIRouter()
 
 @auth_router.post("/register")
-async def register(payload: RegisterSchema):
+async def register(payload: RegisterSchema) -> FastAPIResponse:
     try:
         result = await user_service.register_user(payload)        
         return Response.created(InfoMessage.user_created, result)
@@ -45,7 +46,7 @@ async def register(payload: RegisterSchema):
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
 @auth_router.post("/login")
-async def login_user(response: FastAPIResponse, payload: LoginSchema):
+async def login_user(response: FastAPIResponse, payload: LoginSchema) -> FastAPIResponse:
     try:
         result, error = await user_service.login_user(payload)
         if error:
@@ -77,7 +78,7 @@ async def login_user(response: FastAPIResponse, payload: LoginSchema):
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
 @auth_router.post("/logout")
-async def logout(response: FastAPIResponse):
+async def logout(response: FastAPIResponse) -> FastAPIResponse:
     try:
         response = Response.success_method(InfoMessage.logout_success, None)
         response.delete_cookie("access_token", path="/")
@@ -88,7 +89,7 @@ async def logout(response: FastAPIResponse):
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
 @auth_router.post("/refresh-token")
-async def refresh_token(request: Request):
+async def refresh_token(request: Request) -> FastAPIResponse:
     try:
         refresh_token = request.cookies.get("refresh_token")
         result, error = await user_service.refresh_token(refresh_token)
@@ -121,7 +122,7 @@ async def refresh_token(request: Request):
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
 @auth_router.post('/swagger-login', include_in_schema=False)
-async def swagger_login(response: FastAPIResponse, form_data: OAuth2PasswordRequestForm = Depends()):
+async def swagger_login(response: FastAPIResponse, form_data: OAuth2PasswordRequestForm = Depends()) -> Union[FastAPIResponse, Dict[str, str]]:
     try:
         login_payload = LoginSchema(email=form_data.username, password=form_data.password)
         result, error = await user_service.login_user(login_payload)
@@ -151,7 +152,7 @@ async def swagger_login(response: FastAPIResponse, form_data: OAuth2PasswordRequ
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
 @auth_router.post('/forget-password', status_code=status.HTTP_200_OK)
-async def forget_password(payload: RequestEmailLinkForgotPasswordSchema, background_tasks: BackgroundTasks):
+async def forget_password(payload: RequestEmailLinkForgotPasswordSchema, background_tasks: BackgroundTasks) -> FastAPIResponse:
     try:
         context, email, template, token = await user_service.send_forgot_password_email(payload.email)
         if not context:
@@ -164,7 +165,7 @@ async def forget_password(payload: RequestEmailLinkForgotPasswordSchema, backgro
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
 @auth_router.post('/reset-password', status_code=status.HTTP_200_OK)
-async def reset_password(payload: ResetForgotPasswordSchema):
+async def reset_password(payload: ResetForgotPasswordSchema) -> FastAPIResponse:
     try:
         result, error = await user_service.reset_forgotten_password(
             payload.secret_token,
@@ -179,7 +180,7 @@ async def reset_password(payload: ResetForgotPasswordSchema):
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
 @auth_router.patch('/change-password')
-async def change_password(payload: ChangePasswordSchema, current_user: CurrentUser = Depends(get_current_user)):
+async def change_password(payload: ChangePasswordSchema, current_user: CurrentUser = Depends(get_current_user)) -> FastAPIResponse:
     try:
         user = await base_repository.get_document_data(UserCollection, current_user.id)
         user = User(**user)
@@ -197,7 +198,7 @@ async def change_password(payload: ChangePasswordSchema, current_user: CurrentUs
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
 @auth_router.get("/get-profile")
-async def get_profile(current_user: CurrentUser = Depends(get_current_user)):
+async def get_profile(current_user: CurrentUser = Depends(get_current_user)) -> FastAPIResponse:
     try:
         user_data, error = await user_service.get_profile(current_user.id)
         if error:
@@ -208,7 +209,7 @@ async def get_profile(current_user: CurrentUser = Depends(get_current_user)):
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
 @auth_router.patch("/update-profile/{user_id}")
-async def update_profile(payload: UpdateProfileSchema, user_id: str = Path(description="Id of the user"), current_user: CurrentUser = Depends(get_current_user)):
+async def update_profile(payload: UpdateProfileSchema, user_id: str = Path(description="Id of the user"), current_user: CurrentUser = Depends(get_current_user)) -> FastAPIResponse:
     try:
         user_data, error = await user_service.update_profile(user_id, payload.model_dump(exclude_unset=True))
         if error:
@@ -219,7 +220,7 @@ async def update_profile(payload: UpdateProfileSchema, user_id: str = Path(descr
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
 @auth_router.patch("/upload-profile-picture/{user_id}")
-async def update_profile_picture(profile_picture: UploadFile = File(), user_id: str = Path(description="Id of the user"), current_user: CurrentUser = Depends(get_current_user)):
+async def update_profile_picture(profile_picture: UploadFile = File(), user_id: str = Path(description="Id of the user"), current_user: CurrentUser = Depends(get_current_user)) -> FastAPIResponse:
     try:
         result, error = await user_service.update_profile_picture(user_id, profile_picture)
         if error:
@@ -230,7 +231,7 @@ async def update_profile_picture(profile_picture: UploadFile = File(), user_id: 
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
 @auth_router.get("/get-notifications")
-async def get_notifications(current_user: CurrentUser = Depends(get_current_user)):
+async def get_notifications(current_user: CurrentUser = Depends(get_current_user)) -> FastAPIResponse:
     try:
         notifications = await get_notifications_by_user(current_user.id)
         return Response.success_method(InfoMessage.available_notifications, notifications)
@@ -239,7 +240,7 @@ async def get_notifications(current_user: CurrentUser = Depends(get_current_user
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
 @auth_router.put("/notification-seen")
-async def notification_seen(current_user: CurrentUser = Depends(get_current_user)):
+async def notification_seen(current_user: CurrentUser = Depends(get_current_user)) -> FastAPIResponse:
     try:
         await update_notification_status(current_user.id)
         return Response.success_method(InfoMessage.notification_seen, None)
@@ -248,12 +249,12 @@ async def notification_seen(current_user: CurrentUser = Depends(get_current_user
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
 @auth_router.get("/ws-token")
-async def get_ws_token(user: CurrentUser = Depends(get_current_user)):
+async def get_ws_token(user: CurrentUser = Depends(get_current_user)) -> Dict[str, str]:
     token = create_access_token(user.id, duration=5)
     return {"ws_token": token}
 
 @auth_router.websocket("/ws/notifications")
-async def notification_websocket(websocket: WebSocket):
+async def notification_websocket(websocket: WebSocket) -> None:
     token = websocket.query_params.get("token")
     if not token:
         logger.warning("WebSocket connection attempt without token")

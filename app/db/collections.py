@@ -1,6 +1,7 @@
 from app.db.database import DatabaseManager
 from motor.motor_asyncio import AsyncIOMotorCollection
 from app.core.logging import setup_logger
+from typing import Callable
 
 logger = setup_logger()
 
@@ -26,6 +27,6 @@ def get_logs_collection() -> AsyncIOMotorCollection:
         raise
 
 # For backward compatibility
-User = get_user_collection
-Notification = get_notification_collection
-Logs = get_logs_collection
+User: Callable[[], AsyncIOMotorCollection] = get_user_collection
+Notification: Callable[[], AsyncIOMotorCollection] = get_notification_collection
+Logs: Callable[[], AsyncIOMotorCollection] = get_logs_collection

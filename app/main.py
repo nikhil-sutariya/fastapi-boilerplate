@@ -10,6 +10,7 @@ from app.core.response import CustomException
 from app.db.database import lifespan
 from app.api.routes.logging import log_router
 from app.api.routes.auth import auth_router
+from typing import Dict
 
 settings = get_settings()
 logger = setup_logger()
@@ -30,7 +31,7 @@ app.add_middleware(
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 @app.exception_handler(CustomException)
-async def custom_exception_handler(request: Request, exc: CustomException):
+async def custom_exception_handler(request: Request, exc: CustomException) -> JSONResponse:
     return JSONResponse(
             status_code=exc.status,
             content=jsonable_encoder({
@@ -41,7 +42,7 @@ async def custom_exception_handler(request: Request, exc: CustomException):
         )
 
 @app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     details = exc.errors()
     logger.error(str(details[0]['loc']))
 
@@ -90,5 +91,5 @@ app.include_router(auth_router, tags=['Auth'], prefix='/api/v1/auth')
 app.include_router(log_router, tags=['Logs'], prefix='/api/v1/logs')
 
 @app.get("/")
-def root():
+def root() -> Dict[str, str]:
     return {"message": "Welcome to FatAPI"}

@@ -1,6 +1,7 @@
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 from datetime import datetime
 import traceback
 import logging
@@ -8,7 +9,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 class ErrorLoggingMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next) -> Response:
         request_time = datetime.utcnow()
         client_ip = request.client.host
 

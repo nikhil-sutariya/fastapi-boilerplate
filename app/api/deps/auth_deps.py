@@ -1,5 +1,6 @@
 from fastapi import HTTPException, status, Request
 from jwt.exceptions import InvalidTokenError
+from typing import Dict, Any, Optional
 from app.models.user import User, CurrentUser
 from app.db.collections import User as UserCollection
 from app.repositories import base_repository
@@ -47,7 +48,7 @@ async def get_current_user_from_token(token: str) -> CurrentUser:
     except InvalidTokenError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token. Please log in again.")
 
-async def verify_refresh_token(token: str) -> dict:
+async def verify_refresh_token(token: str) -> Dict[str, Any]:
     try:
         return decode_token(token)
     except InvalidTokenError:
