@@ -11,6 +11,8 @@ from app.db.database import lifespan
 from app.api.routes.logging import log_router
 from app.api.routes.auth import auth_router
 from typing import Dict
+from sqlalchemy import text
+from db.database import AsyncSessionLocal
 
 settings = get_settings()
 logger = setup_logger()
@@ -93,3 +95,11 @@ app.include_router(log_router, tags=['Logs'], prefix='/api/v1/logs')
 @app.get("/")
 def root() -> Dict[str, str]:
     return {"message": "Welcome to FatAPI"}
+
+async def check_db_health() -> bool:
+    try:
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("SELECT 1"))
+        return True
+    except Exception:
+        return False

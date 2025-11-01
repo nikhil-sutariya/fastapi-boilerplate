@@ -6,3 +6,5 @@ venv
 **/uploads
 .vscode
 **/.DS_Store
+.env.prod
+.env.dev
