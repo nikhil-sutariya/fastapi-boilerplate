@@ -30,5 +30,7 @@ def create_refresh_token(user_id: str) -> str:
 def decode_token(token: str) -> Dict[str, Any]:
     try:
         return jwt.decode(token, settings.secret_key, algorithms=[settings.oauth_algorithm])
-    except InvalidTokenError:
-        raise
+    except jwt.ExpiredSignatureError:
+        return None
+    except jwt.InvalidTokenError:
+        return None

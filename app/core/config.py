@@ -1,8 +1,9 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 from dotenv import load_dotenv
-import os
 from typing import List
+from pydantic import Field
+import os
 
 load_dotenv()
 
@@ -12,11 +13,16 @@ class Settings(BaseSettings):
     app_title: str
     app_version: str
     environment: str
+    # Regular DB connection (with RLS)
     db_hostname: str
     db_port: str
     db_username: str
     db_password: str
     db_name: str
+    # Admin DB connection (bypasses RLS)
+    db_admin_username: str
+    db_admin_password: str
+    
     secret_key: str
     oauth_algorithm: str
     access_token_expire_minutes: int
@@ -36,7 +42,13 @@ class Settings(BaseSettings):
     
     @property
     def database_url(self) -> str:
+        """Regular database URL with RLS-restricted user"""
         return f"postgresql+asyncpg://{self.db_username}:{self.db_password}@{self.db_hostname}:{self.db_port}/{self.db_name}"
+    
+    @property
+    def database_admin_url(self) -> str:
+        """Admin database URL with superuser privileges (bypasses RLS)"""
+        return f"postgresql+asyncpg://{self.db_admin_username}:{self.db_admin_password}@{self.db_hostname}:{self.db_port}/{self.db_name}"
 
 @lru_cache
 def get_settings() -> Settings:

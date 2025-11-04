@@ -36,9 +36,9 @@ UPLOAD_PROFILE_DIR: PathlibPath = PathlibPath("uploads/profile_pictures")
 UPLOAD_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
 ALLOWED_EXTENSIONS: set[str] = {"image/jpg", "image/jpeg", "image/png"}
 
-auth_router = APIRouter()
+router = APIRouter()
 
-@auth_router.post("/register")
+@router.post("/register")
 async def register(payload: RegisterSchema, db: AsyncSession = Depends(get_db)) -> FastAPIResponse:
     try:
         result = await user_service.register_user(db, payload)        
@@ -49,7 +49,7 @@ async def register(payload: RegisterSchema, db: AsyncSession = Depends(get_db)) 
         logger.error(str(e))
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
-@auth_router.post("/login")
+@router.post("/login")
 async def login_user(response: FastAPIResponse, payload: LoginSchema, db: AsyncSession = Depends(get_db)) -> FastAPIResponse:
     try:
         result, error = await user_service.login_user(db, payload)
@@ -81,7 +81,7 @@ async def login_user(response: FastAPIResponse, payload: LoginSchema, db: AsyncS
         logger.error(str(e))
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
-@auth_router.post("/logout")
+@router.post("/logout")
 async def logout(response: FastAPIResponse) -> FastAPIResponse:
     try:
         response = Response.success_method(InfoMessage.logout_success, None)
@@ -92,7 +92,7 @@ async def logout(response: FastAPIResponse) -> FastAPIResponse:
         logger.error(str(e))
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
-@auth_router.post("/refresh-token")
+@router.post("/refresh-token")
 async def refresh_token(request: Request, db: AsyncSession = Depends(get_db)) -> FastAPIResponse:
     try:
         refresh_token = request.cookies.get("refresh_token")
@@ -125,7 +125,7 @@ async def refresh_token(request: Request, db: AsyncSession = Depends(get_db)) ->
         logger.error(str(e))
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
-@auth_router.post('/swagger-login', include_in_schema=False, response_model=None)
+@router.post('/swagger-login', include_in_schema=False, response_model=None)
 async def swagger_login(response: FastAPIResponse, form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
     try:
         login_payload = LoginSchema(email=form_data.username, password=form_data.password)
@@ -155,7 +155,7 @@ async def swagger_login(response: FastAPIResponse, form_data: OAuth2PasswordRequ
         logger.error(str(e))
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
-@auth_router.post('/forget-password', status_code=status.HTTP_200_OK)
+@router.post('/forget-password', status_code=status.HTTP_200_OK)
 async def forget_password(payload: RequestEmailLinkForgotPasswordSchema, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)) -> FastAPIResponse:
     try:
         context, email, template, token = await user_service.send_forgot_password_email(db, payload.email)
@@ -168,7 +168,7 @@ async def forget_password(payload: RequestEmailLinkForgotPasswordSchema, backgro
         logger.error(str(e))
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
-@auth_router.post('/reset-password', status_code=status.HTTP_200_OK)
+@router.post('/reset-password', status_code=status.HTTP_200_OK)
 async def reset_password(payload: ResetForgotPasswordSchema, db: AsyncSession = Depends(get_db)) -> FastAPIResponse:
     try:
         result, error = await user_service.reset_forgotten_password(
@@ -184,7 +184,7 @@ async def reset_password(payload: ResetForgotPasswordSchema, db: AsyncSession = 
         logger.error(str(e))
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
-@auth_router.patch('/change-password')
+@router.patch('/change-password')
 async def change_password(payload: ChangePasswordSchema, current_user: CurrentUser = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> FastAPIResponse:
     try:
         # Get the full user object from database
@@ -207,7 +207,7 @@ async def change_password(payload: ChangePasswordSchema, current_user: CurrentUs
         logger.error(str(e))
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
-@auth_router.get("/get-profile")
+@router.get("/get-profile")
 async def get_profile(current_user: CurrentUser = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> FastAPIResponse:
     try:
         user_data, error = await user_service.get_profile(db, current_user.id)
@@ -218,7 +218,7 @@ async def get_profile(current_user: CurrentUser = Depends(get_current_user), db:
         logger.error(str(e))
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
-@auth_router.patch("/update-profile/{user_id}")
+@router.patch("/update-profile/{user_id}")
 async def update_profile(payload: UpdateProfileSchema, user_id: uuid.UUID = Path(description="Id of the user"), current_user: CurrentUser = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> FastAPIResponse:
     try:
         user_data, error = await user_service.update_profile(db, user_id, payload.model_dump(exclude_unset=True))
@@ -229,7 +229,7 @@ async def update_profile(payload: UpdateProfileSchema, user_id: uuid.UUID = Path
         logger.error(str(e))
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
-@auth_router.patch("/upload-profile-picture/{user_id}")
+@router.patch("/upload-profile-picture/{user_id}")
 async def update_profile_picture(profile_picture: UploadFile = File(), user_id: uuid.UUID = Path(description="Id of the user"), current_user: CurrentUser = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> FastAPIResponse:
     try:
         result, error = await user_service.update_profile_picture(db, user_id, profile_picture)
@@ -240,7 +240,7 @@ async def update_profile_picture(profile_picture: UploadFile = File(), user_id: 
         logger.error(str(e))
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
-@auth_router.get("/get-notifications")
+@router.get("/get-notifications")
 async def get_notifications(current_user: CurrentUser = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> FastAPIResponse:
     try:
         notifications = await get_notifications_by_user(db, current_user.id)
@@ -263,7 +263,7 @@ async def get_notifications(current_user: CurrentUser = Depends(get_current_user
         logger.error(str(e))
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
-@auth_router.put("/notification-seen")
+@router.put("/notification-seen")
 async def notification_seen(current_user: CurrentUser = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> FastAPIResponse:
     try:
         await update_notification_status(db, current_user.id)
@@ -272,12 +272,12 @@ async def notification_seen(current_user: CurrentUser = Depends(get_current_user
         logger.error(str(e))
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
-@auth_router.get("/ws-token")
+@router.get("/ws-token")
 async def get_ws_token(user: CurrentUser = Depends(get_current_user)) -> Dict[str, str]:
     token = create_access_token(str(user.id), duration=5)
     return {"ws_token": token}
 
-@auth_router.websocket("/ws/notifications")
+@router.websocket("/ws/notifications")
 async def notification_websocket(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> None:
     token = websocket.query_params.get("token")
     if not token:

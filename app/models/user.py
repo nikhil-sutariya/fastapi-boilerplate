@@ -1,16 +1,14 @@
 from sqlalchemy import Column, String, DateTime, Boolean, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
-from datetime import datetime
 from app.db.database import Base
-from typing import Optional
 import uuid
 
 class User(Base):
     """SQLAlchemy User model"""
     __tablename__ = "users"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, unique=True, nullable=False)
     email = Column(String(255), unique=True, index=True, nullable=False)
     first_name = Column(String(100), nullable=True)
     last_name = Column(String(100), nullable=True)
@@ -25,7 +23,7 @@ class Notification(Base):
     """SQLAlchemy Notification model"""
     __tablename__ = "notifications"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, unique=True, nullable=False)
     user_id = Column(UUID(as_uuid=True), nullable=False)
     organization_id = Column(UUID(as_uuid=True), nullable=True)
     type = Column(String(50), nullable=False)
@@ -35,13 +33,15 @@ class Notification(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 class Log(Base):
-    """SQLAlchemy Log model"""
+    """
+    SQLAlchemy Log model
+    Use this model for all type logs (Success, Info, Error etc.)
+    """
     __tablename__ = "logs"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, unique=True, nullable=False)
     user_id = Column(UUID(as_uuid=True), nullable=True)
     message = Column(Text, nullable=False)
     module = Column(String(100), nullable=False)
     log_type = Column(String(50), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

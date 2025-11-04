@@ -4,15 +4,15 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
+from app.middleware.rls_middleware import RLSMiddleware
 from app.core.config import get_settings
 from app.core.logging import setup_logger
 from app.core.response import CustomException
-from app.db.database import lifespan
+from app.db.database import lifespan, AsyncSessionLocal
 from app.api.routes.logging import log_router
-from app.api.routes.auth import auth_router
+from app.api.routes.auth import router as auth_router
 from typing import Dict
 from sqlalchemy import text
-from db.database import AsyncSessionLocal
 
 settings = get_settings()
 logger = setup_logger()
@@ -30,6 +30,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RLSMiddleware)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 @app.exception_handler(CustomException)
