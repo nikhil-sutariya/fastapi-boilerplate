@@ -7,7 +7,7 @@ This module provides FastAPI dependencies for database sessions with RLS support
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import AsyncGenerator, Optional
-from app.db.database import get_db, get_admin_db, current_user_id, set_rls_user
+from app.db.database import get_admin_db, _get_db_session
 from app.schemas.user import CurrentUser
 from app.api.deps.auth_deps import get_current_user
 from app.core.logging import setup_logger
@@ -35,7 +35,7 @@ async def get_db_with_rls(
     """
     user_id = current_user.id if current_user else None
     
-    async for session in get_db(user_id):
+    async for session in _get_db_session(user_id):
         yield session
 
 async def get_db_without_auth() -> AsyncGenerator[AsyncSession, None]:
@@ -48,7 +48,7 @@ async def get_db_without_auth() -> AsyncGenerator[AsyncSession, None]:
     Yields:
         Database session without RLS
     """
-    async for session in get_db(None):
+    async for session in _get_db_session(None):
         yield session
 
 async def get_admin_session() -> AsyncGenerator[AsyncSession, None]:
@@ -72,7 +72,12 @@ async def get_db_with_custom_user(user_id: uuid.UUID) -> AsyncGenerator[AsyncSes
     """
     Get database session with RLS policies for a specific user.
     
-    Use this when you need to perform operations on behalf of a different user.
+    ⚠️ WARNING: DO NOT use this directly as a route dependency!
+    This is for internal use only (e.g., in service layers, admin operations).
+    Using it as a route dependency will expose user_id as a query parameter in Swagger.
+    
+    Use this when you need to perform operations on behalf of a different user
+    in your service or repository layer, NOT in route handlers.
     
     Args:
         user_id: The user ID to use for RLS policies
@@ -80,6 +85,6 @@ async def get_db_with_custom_user(user_id: uuid.UUID) -> AsyncGenerator[AsyncSes
     Yields:
         Database session with RLS applied for the specified user
     """
-    async for session in get_db(user_id):
+    async for session in _get_db_session(user_id):
         yield session
 

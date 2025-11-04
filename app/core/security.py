@@ -4,8 +4,15 @@ from typing import Dict, Any
 import jwt
 from jwt.exceptions import InvalidTokenError
 from app.core.config import get_settings
+from fastapi.security import OAuth2PasswordBearer
 
 settings = get_settings()
+
+# OAuth2 scheme for Swagger UI (optional, falls back to cookies)
+oauth2_scheme = OAuth2PasswordBearer(
+    tokenUrl="/api/v1/auth/swagger-login",
+    auto_error=False  # Don't auto-error, we'll handle it manually
+)
 
 # pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")

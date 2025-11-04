@@ -36,7 +36,7 @@ target_metadata = Base.metadata
 
 def get_url():
     """Get database URL from environment variables"""
-    return f"postgresql+psycopg2://{os.getenv('DB_USERNAME')}:{os.getenv('DB_PASSWORD')}@{os.getenv('DB_HOSTNAME')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
+    return f"postgresql+psycopg2://{os.getenv('DB_ADMIN_USERNAME')}:{os.getenv('DB_ADMIN_PASSWORD')}@{os.getenv('DB_HOSTNAME')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.

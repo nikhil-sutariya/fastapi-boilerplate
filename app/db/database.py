@@ -76,9 +76,10 @@ async def set_rls_user(session: AsyncSession, user_id: Optional[UUID] = None) ->
             text("SET LOCAL app.current_user_id = ''")
         )
 
-async def get_db(user_id: Optional[UUID] = None) -> AsyncGenerator[AsyncSession, None]:
+async def _get_db_session(user_id: Optional[UUID] = None) -> AsyncGenerator[AsyncSession, None]:
     """
-    Dependency to get database session with RLS policies applied.
+    Internal function to get database session with RLS policies applied.
+    DO NOT use this directly as a FastAPI dependency.
     
     Args:
         user_id: Optional user ID to set for RLS policies
@@ -101,6 +102,16 @@ async def get_db(user_id: Optional[UUID] = None) -> AsyncGenerator[AsyncSession,
             except Exception:
                 pass
             await session.close()
+
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    """
+    Dependency to get database session WITHOUT RLS (for public/auth endpoints).
+    Use this for login, register, and other unauthenticated endpoints.
+    
+    For authenticated endpoints with RLS, use get_db_with_rls instead.
+    """
+    async for session in _get_db_session(None):
+        yield session
 
 async def get_admin_db() -> AsyncGenerator[AsyncSession, None]:
     """

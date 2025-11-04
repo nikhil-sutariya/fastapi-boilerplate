@@ -11,11 +11,10 @@ from app.schemas.user import (
     ResetForgotPasswordSchema, ChangePasswordSchema, UpdateProfileSchema,
     CurrentUser
 )
-from app.models.user import User as UserModel
 from fastapi.security import OAuth2PasswordRequestForm
-from app.repositories.user_repository import get_notifications_by_user, update_notification_status
+from app.repositories.user_repository import get_notifications_by_user, update_notification_status, get_user_by_id
 from app.api.deps.auth_deps import get_current_user, get_current_user_from_token
-from app.db.database import get_db
+from app.api.deps.db_deps import get_db_with_rls, get_admin_db
 from app.core.config import get_settings
 from app.core import constants
 from pathlib import Path as PathlibPath
@@ -39,7 +38,7 @@ ALLOWED_EXTENSIONS: set[str] = {"image/jpg", "image/jpeg", "image/png"}
 router = APIRouter()
 
 @router.post("/register")
-async def register(payload: RegisterSchema, db: AsyncSession = Depends(get_db)) -> FastAPIResponse:
+async def register(payload: RegisterSchema, db: AsyncSession = Depends(get_admin_db)) -> FastAPIResponse:
     try:
         result = await user_service.register_user(db, payload)        
         return Response.created(InfoMessage.user_created, result)
@@ -50,7 +49,7 @@ async def register(payload: RegisterSchema, db: AsyncSession = Depends(get_db)) 
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
 @router.post("/login")
-async def login_user(response: FastAPIResponse, payload: LoginSchema, db: AsyncSession = Depends(get_db)) -> FastAPIResponse:
+async def login_user(response: FastAPIResponse, payload: LoginSchema, db: AsyncSession = Depends(get_admin_db)) -> FastAPIResponse:
     try:
         result, error = await user_service.login_user(db, payload)
         if error:
@@ -93,7 +92,7 @@ async def logout(response: FastAPIResponse) -> FastAPIResponse:
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
 @router.post("/refresh-token")
-async def refresh_token(request: Request, db: AsyncSession = Depends(get_db)) -> FastAPIResponse:
+async def refresh_token(request: Request, db: AsyncSession = Depends(get_admin_db)) -> FastAPIResponse:
     try:
         refresh_token = request.cookies.get("refresh_token")
         result, error = await user_service.refresh_token(db, refresh_token)
@@ -125,20 +124,35 @@ async def refresh_token(request: Request, db: AsyncSession = Depends(get_db)) ->
         logger.error(str(e))
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
-@router.post('/swagger-login', include_in_schema=False, response_model=None)
-async def swagger_login(response: FastAPIResponse, form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
+@router.post('/swagger-login', response_model=None)
+async def swagger_login(
+    response: FastAPIResponse, 
+    form_data: OAuth2PasswordRequestForm = Depends(), 
+    db: AsyncSession = Depends(get_admin_db)
+):
+    """
+    OAuth2 compatible token endpoint for Swagger UI.
+    
+    Use this endpoint to authenticate in Swagger UI:
+    1. Click the "Authorize" button (🔓) in Swagger UI
+    2. Enter your email as 'username' and password
+    3. Click "Authorize"
+    4. The token will be automatically used for all subsequent requests
+    """
     try:
         login_payload = LoginSchema(email=form_data.username, password=form_data.password)
         result, error = await user_service.login_user(db, login_payload)
         if error:
             return Response.error(status.HTTP_400_BAD_REQUEST, error, None)
         
+        # Set cookies for browser-based access (optional for Swagger)
         response.set_cookie(
             key="access_token", 
             value=result['access_token'], 
             httponly=True, 
             secure=True if settings.environment == constants.Environment.production else False,
-            samesite="Lax"
+            samesite="Lax",
+            path="/"
         )
 
         response.set_cookie(
@@ -147,16 +161,20 @@ async def swagger_login(response: FastAPIResponse, form_data: OAuth2PasswordRequ
             httponly=True,
             secure=True if settings.environment == constants.Environment.production else False,
             samesite="Lax",
-            path="/auth/refresh"
+            path="/"
         )
 
-        return {"access_token": result['access_token']}
+        # Return token in OAuth2 format for Swagger UI
+        return {
+            "access_token": result['access_token'],
+            "token_type": "bearer"  # Required by OAuth2 spec
+        }
     except Exception as e:
         logger.error(str(e))
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
 @router.post('/forget-password', status_code=status.HTTP_200_OK)
-async def forget_password(payload: RequestEmailLinkForgotPasswordSchema, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)) -> FastAPIResponse:
+async def forget_password(payload: RequestEmailLinkForgotPasswordSchema, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_admin_db)) -> FastAPIResponse:
     try:
         context, email, template, token = await user_service.send_forgot_password_email(db, payload.email)
         if not context:
@@ -169,7 +187,7 @@ async def forget_password(payload: RequestEmailLinkForgotPasswordSchema, backgro
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
 @router.post('/reset-password', status_code=status.HTTP_200_OK)
-async def reset_password(payload: ResetForgotPasswordSchema, db: AsyncSession = Depends(get_db)) -> FastAPIResponse:
+async def reset_password(payload: ResetForgotPasswordSchema, db: AsyncSession = Depends(get_db_with_rls)) -> FastAPIResponse:
     try:
         result, error = await user_service.reset_forgotten_password(
             db,
@@ -185,10 +203,9 @@ async def reset_password(payload: ResetForgotPasswordSchema, db: AsyncSession = 
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
 @router.patch('/change-password')
-async def change_password(payload: ChangePasswordSchema, current_user: CurrentUser = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> FastAPIResponse:
+async def change_password(payload: ChangePasswordSchema, current_user: CurrentUser = Depends(get_current_user), db: AsyncSession = Depends(get_db_with_rls)) -> FastAPIResponse:
     try:
         # Get the full user object from database
-        from app.repositories.user_repository import get_user_by_id
         user = await get_user_by_id(db, current_user.id)
         if not user:
             return Response.error(status.HTTP_404_NOT_FOUND, ErrorMessage.user_email_not_exists, None)
@@ -208,7 +225,7 @@ async def change_password(payload: ChangePasswordSchema, current_user: CurrentUs
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
 @router.get("/get-profile")
-async def get_profile(current_user: CurrentUser = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> FastAPIResponse:
+async def get_profile(current_user: CurrentUser = Depends(get_current_user), db: AsyncSession = Depends(get_db_with_rls)) -> FastAPIResponse:
     try:
         user_data, error = await user_service.get_profile(db, current_user.id)
         if error:
@@ -219,7 +236,7 @@ async def get_profile(current_user: CurrentUser = Depends(get_current_user), db:
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
 @router.patch("/update-profile/{user_id}")
-async def update_profile(payload: UpdateProfileSchema, user_id: uuid.UUID = Path(description="Id of the user"), current_user: CurrentUser = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> FastAPIResponse:
+async def update_profile(payload: UpdateProfileSchema, user_id: uuid.UUID = Path(description="Id of the user"), current_user: CurrentUser = Depends(get_current_user), db: AsyncSession = Depends(get_db_with_rls)) -> FastAPIResponse:
     try:
         user_data, error = await user_service.update_profile(db, user_id, payload.model_dump(exclude_unset=True))
         if error:
@@ -230,7 +247,7 @@ async def update_profile(payload: UpdateProfileSchema, user_id: uuid.UUID = Path
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
 @router.patch("/upload-profile-picture/{user_id}")
-async def update_profile_picture(profile_picture: UploadFile = File(), user_id: uuid.UUID = Path(description="Id of the user"), current_user: CurrentUser = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> FastAPIResponse:
+async def update_profile_picture(profile_picture: UploadFile = File(), user_id: uuid.UUID = Path(description="Id of the user"), current_user: CurrentUser = Depends(get_current_user), db: AsyncSession = Depends(get_db_with_rls)) -> FastAPIResponse:
     try:
         result, error = await user_service.update_profile_picture(db, user_id, profile_picture)
         if error:
@@ -241,7 +258,7 @@ async def update_profile_picture(profile_picture: UploadFile = File(), user_id: 
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
 @router.get("/get-notifications")
-async def get_notifications(current_user: CurrentUser = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> FastAPIResponse:
+async def get_notifications(current_user: CurrentUser = Depends(get_current_user), db: AsyncSession = Depends(get_db_with_rls)) -> FastAPIResponse:
     try:
         notifications = await get_notifications_by_user(db, current_user.id)
         # Convert SQLAlchemy objects to dictionaries for JSON serialization
@@ -264,7 +281,7 @@ async def get_notifications(current_user: CurrentUser = Depends(get_current_user
         return Response.error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorMessage.server_error, str(e))
 
 @router.put("/notification-seen")
-async def notification_seen(current_user: CurrentUser = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> FastAPIResponse:
+async def notification_seen(current_user: CurrentUser = Depends(get_current_user), db: AsyncSession = Depends(get_db_with_rls)) -> FastAPIResponse:
     try:
         await update_notification_status(db, current_user.id)
         return Response.success_method(InfoMessage.notification_seen, None)
@@ -278,7 +295,7 @@ async def get_ws_token(user: CurrentUser = Depends(get_current_user)) -> Dict[st
     return {"ws_token": token}
 
 @router.websocket("/ws/notifications")
-async def notification_websocket(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> None:
+async def notification_websocket(websocket: WebSocket) -> None:
     token = websocket.query_params.get("token")
     if not token:
         logger.warning("WebSocket connection attempt without token")
@@ -287,23 +304,31 @@ async def notification_websocket(websocket: WebSocket, db: AsyncSession = Depend
 
     try:
         logger.info("Attempting to authenticate websocket connection")
-        current_user = await get_current_user_from_token(token, db)
-        user_id = current_user.id
-        logger.info(f"WebSocket authenticated for user {user_id}")
-        await user_notification_manager.manage_connection(str(user_id), websocket)
+        # Create admin DB session for authentication (bypasses RLS)
+        from app.db.database import get_admin_db
+        async for admin_db in get_admin_db():
+            try:
+                current_user = await get_current_user_from_token(token, admin_db)
+                user_id = current_user.id
+                logger.info(f"WebSocket authenticated for user {user_id}")
+                await user_notification_manager.manage_connection(str(user_id), websocket)
 
-        try:
-            while websocket.client_state == WebSocketState.CONNECTED:
                 try:
-                    await asyncio.wait_for(websocket.receive_text(), timeout=10)
-                except asyncio.TimeoutError:
-                    pass
-        except WebSocketDisconnect:
-            logger.info(f"User disconnected {user_id}")
-        except Exception as e:
-            logger.error(f"Unexpected error for user {user_id}: {e}")
-        finally:
-            await user_notification_manager.manage_disconnection(str(user_id), websocket)
+                    while websocket.client_state == WebSocketState.CONNECTED:
+                        try:
+                            await asyncio.wait_for(websocket.receive_text(), timeout=10)
+                        except asyncio.TimeoutError:
+                            pass
+                except WebSocketDisconnect:
+                    logger.info(f"User disconnected {user_id}")
+                except Exception as e:
+                    logger.error(f"Unexpected error for user {user_id}: {e}")
+                finally:
+                    await user_notification_manager.manage_disconnection(str(user_id), websocket)
+            except Exception as e:
+                logger.error(f"Authentication error in websocket: {e}")
+                await websocket.close(code=4000)
+            break  # Exit the async for loop after processing
     except Exception as e:
-        logger.error(f"Authentication error in websocket: {e}")
+        logger.error(f"Database connection error in websocket: {e}")
         await websocket.close(code=4000)

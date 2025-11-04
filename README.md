@@ -280,6 +280,9 @@ alembic init alembic
 ### Create a New Migration
 
 ```bash
+# Run this incase alembic/versions folder not exists
+mkdir -p alembic/versions
+
 # Create a new migration file
 alembic revision --autogenerate -m "Description of changes"
 

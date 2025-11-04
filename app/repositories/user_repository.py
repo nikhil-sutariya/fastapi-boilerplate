@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from app.models.user import User, Notification
 from app.core.logging import setup_logger
-from app.repositories.base_repository import get_record_by_field, get_records_by_filter, update_record
+from app.repositories.base_repository import get_record_by_id, get_record_by_field, get_records_by_filter, update_record
 import uuid
 
 logger = setup_logger()
@@ -20,7 +20,6 @@ async def get_user_by_email(session: AsyncSession, email: str) -> Optional[User]
 async def get_user_by_id(session: AsyncSession, user_id: uuid.UUID) -> Optional[User]:
     """Get user by ID"""
     try:
-        from app.repositories.base_repository import get_record_by_id
         return await get_record_by_id(session, User, user_id)
     except Exception as e:
         logger.error(f"Error getting user by ID: {e}")
