@@ -15,13 +15,13 @@ BEGIN
 END $$;
 
 -- Create admin user (bypasses RLS policies)
--- DO $$ 
--- BEGIN
---     IF NOT EXISTS (SELECT FROM pg_user WHERE usename = 'app_admin') THEN
---         CREATE USER app_admin WITH PASSWORD 'admin_secure_password';
---         GRANT BYPASSRLS TO app_admin;
---     END IF;
--- END $$;
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_user WHERE usename = 'app_admin') THEN
+        CREATE USER app_admin WITH PASSWORD 'admin_secure_password';
+        GRANT BYPASSRLS TO app_admin;
+    END IF;
+END $$;
 
 -- Grant necessary permissions to restricted user
 GRANT CONNECT ON DATABASE your_database_name TO app_user;
