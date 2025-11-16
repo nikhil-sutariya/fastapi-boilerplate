@@ -11,6 +11,7 @@ from app.core.response import CustomException
 from app.db.database import lifespan, AsyncSessionLocal
 from app.api.routes.logging import log_router
 from app.api.routes.auth import router as auth_router
+from app.api.routes.admin.auth import router as admin_auth_router
 from typing import Dict
 from sqlalchemy import text
 
@@ -92,6 +93,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 app.include_router(auth_router, tags=['Auth'], prefix='/api/v1/auth')
 app.include_router(log_router, tags=['Logs'], prefix='/api/v1/logs')
+app.include_router(admin_auth_router, tags=['Admin - Auth'], prefix='/api/v1/admin/auth')
 
 @app.get("/")
 def root() -> Dict[str, str]:

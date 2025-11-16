@@ -16,6 +16,7 @@ class ErrorMessage:
     wrong_current_password = "Current password is wrong"
     profile_not_updated = "Something went wrong while updating profile details please try again later"
     invalid_image_type = "Only JPG, PNG, and SVG files are allowed."
+    user_not_authorized_to_login = "Only admin is authorized to login"
 
 class InfoMessage:
     user_created = "User created successfully"

@@ -10,7 +10,7 @@
 DO $$ 
 BEGIN
     IF NOT EXISTS (SELECT FROM pg_user WHERE usename = 'app_user') THEN
-        CREATE USER app_user WITH PASSWORD 'secure_password';
+        CREATE USER app_user WITH PASSWORD 'Diaz^$M12';
     END IF;
 END $$;
 
@@ -18,13 +18,12 @@ END $$;
 DO $$ 
 BEGIN
     IF NOT EXISTS (SELECT FROM pg_user WHERE usename = 'app_admin') THEN
-        CREATE USER app_admin WITH PASSWORD 'admin_secure_password';
-        GRANT BYPASSRLS TO app_admin;
+        CREATE USER app_admin WITH PASSWORD 'Diaz^$M12!BeInside' SUPERUSER;
     END IF;
 END $$;
 
 -- Grant necessary permissions to restricted user
-GRANT CONNECT ON DATABASE your_database_name TO app_user;
+GRANT CONNECT ON DATABASE ipolytics TO app_user;
 GRANT USAGE ON SCHEMA public TO app_user;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
